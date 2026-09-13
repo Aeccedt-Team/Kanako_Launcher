@@ -18,7 +18,30 @@ window.updateStatus = function(message, color) {
                 : (color === "#E67E22" || color === "orange")  ? "warn"
                 : "info";
     appendLog(`[${level.toUpperCase()}] ${message}`, level);
+
+    // Re-enable the Play button once launching reaches a terminal state:
+    // either the success message, or any error status (so a failed launch
+    // doesn't leave the button stuck disabled).
+    if (message === "Launched successfully! Have fun." || level === "error") {
+        setPlayButtonLaunching(false);
+    }
 };
+
+// ==========================================
+// PLAY BUTTON LAUNCHING STATE
+// ==========================================
+
+function setPlayButtonLaunching(isLaunching) {
+    const btn = document.getElementById("btn-play");
+    if (!btn) return;
+    if (isLaunching) {
+        btn.disabled = true;
+        btn.innerText = "Launching...";
+    } else {
+        btn.disabled = false;
+        btn.innerText = "PLAY";
+    }
+}
 
 window.updateProgress = function(percentage) {
     const container = document.getElementById("progress-container");
@@ -335,6 +358,7 @@ function handlePlayClick() {
         window.updateStatus("Please enter a username!", "#E74C3C");
         return;
     }
+    setPlayButtonLaunching(true);
     window.updateStatus("Preparing to launch...", "#3498DB");
     window.pywebview.api.launch_game(username, version, remember, keepLauncherOpen);
 }

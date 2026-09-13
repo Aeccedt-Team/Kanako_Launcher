@@ -297,6 +297,19 @@ input[type="text"] {
     box-shadow: inset 3px 3px 0px #2a5500, inset -3px -3px 0px #7fdf13;
     transform: translateY(1px);
 }
+#btn-play:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+    background: #55AA00;
+    color: #FFFFFF;
+    text-shadow: 2px 2px 0px #1b4000;
+    transform: none;
+}
+#btn-play:disabled:hover {
+    background: #55AA00;
+    border-color: #000000;
+    color: #FFFFFF;
+}
 
 /* Giao diện Modal Chỉnh sửa */
 .modal-overlay {
