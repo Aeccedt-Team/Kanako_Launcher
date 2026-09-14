@@ -173,10 +173,71 @@ input[type="text"] {
 .checkbox-group {
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: 8px;
     margin-top: 2px;
 }
 .checkbox-group label { font-weight: normal; cursor: pointer; }
+
+/* ── MINECRAFT-STYLE CHECKBOXES ───────────────────────────
+   Same carved/raised bevel language used for buttons and
+   panels elsewhere in the launcher: a sunken black slot when
+   unchecked, a raised green block with a blocky tick when
+   checked. */
+.checkbox-group input[type="checkbox"],
+.form-group.checkbox-single input[type="checkbox"] {
+    appearance: none;
+    -webkit-appearance: none;
+    width: 20px;
+    height: 20px;
+    min-width: 20px;
+    margin: 0;
+    flex-shrink: 0;
+    position: relative;
+    cursor: pointer;
+    outline: none;
+    background: #000000;
+    border: 2px solid #101010;
+    box-shadow: inset 2px 2px 0px #1a1a1a, inset -2px -2px 0px #3a3a3a;
+}
+.checkbox-group input[type="checkbox"]:hover,
+.form-group.checkbox-single input[type="checkbox"]:hover {
+    border-color: #ffffff;
+}
+.checkbox-group input[type="checkbox"]:focus-visible,
+.form-group.checkbox-single input[type="checkbox"]:focus-visible {
+    outline: 2px dashed #FFFF55;
+    outline-offset: 2px;
+}
+.checkbox-group input[type="checkbox"]:checked,
+.form-group.checkbox-single input[type="checkbox"]:checked {
+    background: #55AA00;
+    border-color: #000000;
+    box-shadow: inset 2px 2px 0px #7fdf13, inset -2px -2px 0px #2a5500;
+}
+.checkbox-group input[type="checkbox"]:checked::after,
+.form-group.checkbox-single input[type="checkbox"]:checked::after {
+    content: '';
+    position: absolute;
+    left: 5px;
+    top: 2px;
+    width: 5px;
+    height: 10px;
+    border-right: 3px solid #FFFFFF;
+    border-bottom: 3px solid #FFFFFF;
+    box-shadow: 1px 1px 0 #1b4000;
+    transform: rotate(40deg);
+}
+/* Delete-game-files lives in the Danger Zone — mark it checked-red
+   instead of checked-green so ticking it reads as a warning. */
+.checkbox-group input[type="checkbox"].checkbox-danger:checked,
+.form-group.checkbox-single input[type="checkbox"].checkbox-danger:checked {
+    background: #E74C3C;
+    box-shadow: inset 2px 2px 0px #ff8a80, inset -2px -2px 0px #a5281b;
+}
+.checkbox-group input[type="checkbox"].checkbox-danger:checked::after,
+.form-group.checkbox-single input[type="checkbox"].checkbox-danger:checked::after {
+    box-shadow: 1px 1px 0 #7a1c12;
+}
 
 /* Menu Version tùy biến thụt thò giống Tkinter */
 .version-section {
