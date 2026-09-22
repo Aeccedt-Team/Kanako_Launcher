@@ -1,0 +1,25 @@
+Kanako_Launcher/
+├── core
+│   ├── __init__.py
+│   ├── config_manager.py
+│   ├── game_runner.py
+│   ├── patches.py
+│   └── version_manager.py
+├── dist
+│   └── Kanako_Launcher.exe
+├── ui
+│   ├── web
+│   │   ├── app.js
+│   │   ├── banner.png
+│   │   ├── index.html
+│   │   ├── kanako-launcher.png //<- here
+│   │   ├── style.css
+│   │   └── VVMAyuMincho-Regular.ttf
+│   ├── __init__.py
+│   └── bridge.py
+├── .gitignore
+├── constants.py
+├── icon.ico
+├── Kanako_Launcher.spec
+├── main.py
+└── main.spec

@@ -124,17 +124,176 @@ def java_major_for_version(version_str: str) -> int:
     return 21
 
 
+def _release_file_major_version(java_home: str):
+    """
+    Read JAVA_HOME/release (the standard JDK metadata file, present on
+    JDK 9+ and most modern JDK 8 builds) for an exact major version.
+    Far more reliable than guessing from the folder name.
+    """
+    release_path = os.path.join(java_home, "release")
+    if not os.path.isfile(release_path):
+        return None
+    try:
+        with open(release_path, "r", encoding="utf-8", errors="ignore") as f:
+            for line in f:
+                if line.startswith("JAVA_VERSION="):
+                    ver = line.split("=", 1)[1].strip().strip('"')
+                    # Legacy scheme "1.8.0_501" -> 8 ; modern scheme "17.0.9" -> 17
+                    m = re.match(r"1\.(\d+)", ver) or re.match(r"(\d+)", ver)
+                    if m:
+                        return int(m.group(1))
+    except OSError:
+        pass
+    return None
+
+
+def _major_from_dirname(name: str):
+    """Best-effort fallback: guess the major version from the folder name
+    itself, for the rare install with no 'release' file (e.g. bare JRE 8)."""
+    lname = name.lower()
+    m = re.search(r"1\.(\d+)", lname)                               # jre1.8.0_503, jdk-1.8
+    if m:
+        return int(m.group(1))
+    m = re.search(r"(?:jdk|jre|java)[\-_]?(\d{1,2})\b", lname)      # jdk-17, jdk21, corretto-21
+    if m:
+        return int(m.group(1))
+    return None
+
+
+def _java_executable_in(java_home: str):
+    for exe in ("javaw.exe", "java.exe", "java"):
+        candidate = os.path.join(java_home, "bin", exe)
+        if os.path.isfile(candidate):
+            return candidate
+    return None
+
+
+def _common_java_install_roots() -> list[str]:
+    """Every place a Java install commonly lives, per OS/vendor."""
+    system = platform.system()
+    roots = []
+    if system == "Windows":
+        roots += [
+            r"C:\Program Files\Java",
+            r"C:\Program Files (x86)\Java",
+            r"C:\Program Files\Eclipse Adoptium",
+            r"C:\Program Files\Zulu",
+            r"C:\Program Files\Amazon Corretto",
+            r"C:\Program Files\Microsoft",
+            r"C:\Program Files\BellSoft",
+        ]
+    elif system == "Darwin":
+        roots.append("/Library/Java/JavaVirtualMachines")
+    else:  # Linux and other Unix-likes
+        roots += ["/usr/lib/jvm", "/opt/java", os.path.expanduser("~/.sdkman/candidates/java")]
+    return [r for r in roots if os.path.isdir(r)]
+
+
+_JAVA_SCAN_CACHE = None
+
+def scan_installed_javas(force_rescan: bool = False) -> dict:
+    """
+    Scan common install locations on this machine for every Java found and
+    return {major_version: best_executable_path}. Cached after the first
+    call in this process (cheap directory listing, but no need to repeat
+    it on every launch) -- pass force_rescan=True to refresh.
+    """
+    global _JAVA_SCAN_CACHE
+    if _JAVA_SCAN_CACHE is not None and not force_rescan:
+        return _JAVA_SCAN_CACHE
+
+    found = {}  # major -> (dirname, exe_path), so newer-looking names win ties
+    for root in _common_java_install_roots():
+        try:
+            entries = os.listdir(root)
+        except OSError:
+            continue
+        for entry in entries:
+            java_home = os.path.join(root, entry)
+            if platform.system() == "Darwin":
+                java_home = os.path.join(java_home, "Contents", "Home")
+            if not os.path.isdir(java_home):
+                continue
+
+            major = _release_file_major_version(java_home) or _major_from_dirname(entry)
+            if major is None:
+                continue
+            exe = _java_executable_in(java_home)
+            if not exe:
+                continue
+
+            if major not in found or entry > found[major][0]:
+                found[major] = (entry, exe)
+
+    _JAVA_SCAN_CACHE = {major: exe for major, (_, exe) in found.items()}
+    if _JAVA_SCAN_CACHE:
+        print(f"[Java Detect] Found installed Java versions: {_JAVA_SCAN_CACHE}")
+    return _JAVA_SCAN_CACHE
+
+
+def _required_java_component(version_str: str, minecraft_dir: str, _seen: set = None) -> str:
+    """
+    Read this version's manifest for the exact runtime component (e.g.
+    'jre-legacy', 'java-runtime-gamma') it needs.
+
+    Modded loader version jsons (Forge, NeoForge, Fabric, Quilt) almost
+    never carry their own 'javaVersion' -- they use 'inheritsFrom' to
+    inherit it (and most other metadata) from the vanilla parent version.
+    So if this version's own json doesn't specify one, walk up the
+    inheritance chain to the parent that does, instead of assuming Java 8
+    ('jre-legacy'). Only truly falls back to 'jre-legacy' if the json is
+    missing entirely or the chain never specifies a component -- which is
+    correct for genuinely old, pre-Java-version-field versions.
+    """
+    _seen = _seen or set()
+    if version_str in _seen:          # guard against a circular inheritsFrom chain
+        return "jre-legacy"
+    _seen.add(version_str)
+
+    try:
+        json_path = os.path.join(minecraft_dir, "versions", version_str, f"{version_str}.json")
+        if not os.path.isfile(json_path):
+            return "jre-legacy"
+
+        with open(json_path, "r", encoding="utf-8") as f:
+            vdata = json.load(f)
+
+        component = vdata.get("javaVersion", {}).get("component")
+        if component:
+            return component
+
+        parent = vdata.get("inheritsFrom")
+        if parent:
+            return _required_java_component(parent, minecraft_dir, _seen)
+    except Exception:
+        pass
+    return "jre-legacy"
+
+
 def get_suitable_java(version_str: str, prof_data: dict) -> str:
     """
     Return the Java executable to use for this version.
 
     Priority:
-    1. Manual override from profile settings
-    2. Hardcoded path from constants.JAVA_PATHS  (checked first so Java 8
-       versions like Forge 1.12.2 never accidentally get Java 17/21)
-    3. Bundled JRE downloaded by minecraft_launcher_lib (modern versions only,
-       i.e. Java 17+ -- skipped entirely for Java 8 versions)
-    4. System 'java' on PATH
+    1. Manual override from profile settings.
+    2. The runtime Mojang's own version manifest says THIS EXACT version
+       needs (e.g. "jre-legacy" for old Forge, "java-runtime-gamma" for
+       modern releases) — already auto-downloaded by
+       install_minecraft_version() into <minecraft_dir>/runtime/.
+       This must run AFTER install_minecraft_version() has been called,
+       so the version json and runtime files are guaranteed to exist.
+       This works for every version, including Java-8-era ones — Mojang
+       has shipped a matching bundled runtime for those too since the
+       Electron launcher, it was just never being looked at here before.
+    3. A Java matching the required major version, auto-discovered by
+       scanning common install locations on THIS machine (see
+       scan_installed_javas()) -- adapts to whatever the user actually
+       has installed and wherever it lives, instead of a fixed path.
+    4. Hardcoded path from constants.JAVA_PATHS, as an explicit pin/
+       override for a specific known-good install, if you want one.
+    5. System 'java' on PATH (logged loudly — this may be the wrong
+       major version and silently produces crashes like Forge 1.12.2's
+       ClassCastException on Java 9+).
     """
     # 1. Manual override
     if prof_data.get("java_manual") and prof_data.get("java_path"):
@@ -142,35 +301,42 @@ def get_suitable_java(version_str: str, prof_data: dict) -> str:
         if manual:
             return manual
 
+    minecraft_dir = prof_data.get("game_dir", "")
+
+    # 2. Bundled runtime matching what this version's own manifest requires.
+    if minecraft_dir:
+        try:
+            component = _required_java_component(version_str, minecraft_dir)
+            exe = minecraft_launcher_lib.runtime.get_executable_path(component, minecraft_dir)
+            if exe and os.path.isfile(exe):
+                return exe
+            print(f"[Java Detect] Bundled runtime '{component}' not found on disk for {version_str} "
+                  f"(get_executable_path returned {exe!r}).")
+        except Exception as e:
+            print(f"[Java Detect] Bundled runtime lookup failed for {version_str}: {e}")
+
     java_major = java_major_for_version(version_str)
 
-    # 2. Hardcoded path -- always wins over the bundled JRE so that versions
-    #    requiring Java 8 (<=1.16.5, all Forge 1.12.2 etc.) get exactly Java 8
-    #    and not whatever modern JRE happens to be in the runtime folder.
+    # 3. Auto-scan common install locations on this machine for a Java
+    #    matching the exact major version needed.
+    scanned = scan_installed_javas().get(java_major)
+    if scanned and os.path.isfile(scanned):
+        return scanned
+
+    # 4. Hardcoded path -- fallback / explicit override for a specific
+    #    known-good install (edit constants.JAVA_PATHS if this doesn't match
+    #    your machine).
     hardcoded = JAVA_PATHS.get(java_major, JAVA_PATHS[21])
     if os.path.exists(hardcoded):
         return hardcoded
 
-    # 3. Bundled JRE -- only for Java 17/21 (modern versions).
-    #    Skipped for Java 8 because the bundled runtime is always Java 17+.
-    if java_major >= 17:
-        minecraft_dir = prof_data.get("game_dir", "")
-        if minecraft_dir:
-            runtime_base = os.path.join(minecraft_dir, "runtime")
-            if os.path.isdir(runtime_base):
-                for runtime_name in os.listdir(runtime_base):
-                    os_folder = _os_runtime_folder()
-                    candidate_root = os.path.join(
-                        runtime_base, runtime_name, os_folder, runtime_name, "bin"
-                    )
-                    for exe in ("javaw.exe", "java.exe", "java"):
-                        candidate = os.path.join(candidate_root, exe)
-                        if os.path.isfile(candidate):
-                            return candidate
-
-    # 4. System java
+    # 5. System java -- last resort, may be the wrong major version.
     fallback = shutil.which("java")
-    return fallback if fallback else hardcoded
+    if fallback:
+        print(f"[Java Detect] WARNING: no bundled or hardcoded Java {java_major} found for "
+              f"{version_str} -- falling back to system PATH java, which may be the wrong version.")
+        return fallback
+    return hardcoded
 
 
 def _os_runtime_folder() -> str:
@@ -288,7 +454,6 @@ def run_launch_process(username: str, current_prof: dict,
     
     version       = current_prof["version"]
     minecraft_dir = current_prof["game_dir"]
-    java_path     = get_suitable_java(version, current_prof)
 
     os.makedirs(minecraft_dir, exist_ok=True)
     _bootstrap_minecraft_dir(minecraft_dir, version)
@@ -314,7 +479,10 @@ def run_launch_process(username: str, current_prof: dict,
         # (e.g. -Djava.library.path, -Dorg.lwjgl.system.SharedLibraryExtractPath).
         # We insert user args manually at position 1 below, which is safe
         # because position 0 is always the java executable.        
-        "executablePath": java_path,
+        # executablePath is filled in below, once install_minecraft_version()
+        # has actually downloaded the version json and its matching bundled
+        # runtime -- get_suitable_java() needs those to exist on disk.
+        "executablePath": None,
         "gameDirectory":  minecraft_dir,
     }
 
@@ -350,12 +518,40 @@ def run_launch_process(username: str, current_prof: dict,
     except Exception as e:
         print(f"[Install Error] {e}")
 
+    # Explicitly make sure this version's required Java runtime is present.
+    # install_minecraft_version() is documented to handle this itself, but
+    # we don't rely on that alone -- if it's missing (partial install,
+    # a version json with no javaVersion field, a previous run that
+    # predates this logic, etc.) get_suitable_java() below would otherwise
+    # silently fall through to whatever Java happens to be on the system,
+    # which can be the wrong major version.
+    try:
+        component = _required_java_component(version, minecraft_dir)
+        if not minecraft_launcher_lib.runtime.get_executable_path(component, minecraft_dir):
+            status_cb(f"Fetching Java runtime ({component})...", "orange")
+            minecraft_launcher_lib.runtime.install_jvm_runtime(
+                component, minecraft_dir, callback=launcher_callback
+            )
+    except Exception as e:
+        print(f"[Java Detect] Could not ensure bundled runtime is installed: {e}")
+
     progress_cb(1.0)
 
     # Fix mod-loader JSON quirks (e.g. Forge using 'values' instead of 'value')
     if version not in sanitized_versions:
         sanitize_version_json(version, minecraft_dir)
         sanitized_versions.add(version)
+
+    # Now that install_minecraft_version() has downloaded the version json
+    # and its matching bundled runtime, we can reliably detect which Java
+    # executable this exact version needs.
+    java_path = get_suitable_java(version, current_prof)
+    options["executablePath"] = java_path
+    # Surface this in the console tab (not just the terminal) so a wrong
+    # pick -- e.g. an old Java version on a modern Minecraft version -- is
+    # visible to the user immediately instead of showing up as a cryptic
+    # JVM crash after the fact.
+    status_cb(f"Using Java: {java_path}", "#3498DB")
 
     try:
         # Build the launch command — minecraft_launcher_lib handles ALL JVM flags
