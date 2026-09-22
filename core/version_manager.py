@@ -24,7 +24,7 @@ class VersionManager:
                     result[vtype].append(v["id"])
         except Exception:
             print("No network. Using fallback version list.")
-            result[VERSION_TYPE_RELEASE] = ["1.21.1", "1.20.1", "1.19.4", "1.16.5", "1.12.2"]
+            result[VERSION_TYPE_RELEASE] = ["1.21.1", "1.20.1", "1.19.4", "1.16.5", "1.12.2", "1.8.9", "1.7.10"]
         return result
 
     def build_display_list(self, prof_data: dict, local_versions: list[str]) -> list[dict]:
@@ -36,7 +36,6 @@ class VersionManager:
         all_official = set(releases) | set(snapshots) | set(betas) | set(alphas)
         mod_versions = [v for v in local_versions if v not in all_official]
 
-        # 1. Giữ nguyên thứ tự ưu tiên hiển thị cũ của bạn
         ordered_strings = snapshots + releases + betas + alphas + mod_versions
 
         # Tối ưu hóa tốc độ kiểm tra bằng cách chuyển sang set

@@ -253,19 +253,27 @@ class LauncherBridgeAPI:
         return self._config_manager.get_profile(profile_name)
 
     def web_browse_directory(self):
-        result = self._window.create_file_dialog(webview.FOLDER_DIALOG)
-        if result:
-            return os.path.normpath(result[0])
-        return ""
+        try:
+            result = self._window.create_file_dialog(webview.FOLDER_DIALOG)
+            if result:
+                return os.path.normpath(result[0])
+            return ""
+        except Exception as e:
+            print(f"[Bridge Error] web_browse_directory failed: {e}")
+            return ""
 
     def web_browse_file(self):
-        result = self._window.create_file_dialog(
-            webview.OPEN_DIALOG,
-            file_types=("Java Executable (java.exe;java)", "All files (*.*)"),
-        )
-        if result:
-            return os.path.normpath(result[0])
-        return ""
+        try:
+            result = self._window.create_file_dialog(
+                webview.OPEN_DIALOG,
+                file_types=("Java executable (*.exe)", "All files (*.*)"),
+            )
+            if result:
+                return os.path.normpath(result[0])
+            return ""
+        except Exception as e:
+            print(f"[Bridge Error] web_browse_file failed: {e}")
+            return ""
 
     def web_open_folder(self, path):
         if not path:
