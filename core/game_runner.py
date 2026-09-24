@@ -231,6 +231,29 @@ def scan_installed_javas(force_rescan: bool = False) -> dict:
     return _JAVA_SCAN_CACHE
 
 
+def _prefer_windowless_java(java_path: str) -> str:
+    """
+    On Windows, java.exe is a console-subsystem binary -- launching it
+    makes Windows auto-allocate a visible console window for the game
+    process (and our SW_SHOWNORMAL flag below, needed to make LWJGL 2's
+    window visible on 1.12.2 and older, forces that console to show too).
+    javaw.exe is the exact same JVM built as a GUI-subsystem binary, so no
+    console is ever created for it. If java_path resolved to java.exe and
+    a javaw.exe sits right next to it (true for virtually every real
+    JDK/JRE), silently prefer that instead -- same JVM, no popup console.
+    Applied once here, after get_suitable_java(), so it covers every
+    detection path (manual, bundled runtime, local scan, hardcoded,
+    system PATH) uniformly instead of relying on each one picking right.
+    """
+    if platform.system() != "Windows" or not java_path:
+        return java_path
+    if os.path.basename(java_path).lower() == "java.exe":
+        candidate = os.path.join(os.path.dirname(java_path), "javaw.exe")
+        if os.path.isfile(candidate):
+            return candidate
+    return java_path
+
+
 def _required_java_component(version_str: str, minecraft_dir: str, _seen: set = None) -> str:
     """
     Read this version's manifest for the exact runtime component (e.g.
@@ -546,6 +569,7 @@ def run_launch_process(username: str, current_prof: dict,
     # and its matching bundled runtime, we can reliably detect which Java
     # executable this exact version needs.
     java_path = get_suitable_java(version, current_prof)
+    java_path = _prefer_windowless_java(java_path)
     options["executablePath"] = java_path
     # Surface this in the console tab (not just the terminal) so a wrong
     # pick -- e.g. an old Java version on a modern Minecraft version -- is
