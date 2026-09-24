@@ -24,4 +24,6 @@ dist/
 
 compress.bat
 git_push.bat
+ascii_tree_generator.py
+project_structure.txt
 *.zip
