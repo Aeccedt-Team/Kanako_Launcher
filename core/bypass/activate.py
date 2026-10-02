@@ -1,9 +1,10 @@
 # core/bypass/activate.py
 import os
+import sys
 
 def activate_bypass(mc_command: list):
     try:
-        # 1. Ép tham số userType về legacy và sửa accessToken thành chuỗi giả cấu trúc JWT
+        # 1. Ép tham số userType về legacy và sửa accessToken thành chuỗi giả JWT
         dummy_jwt = (
             "eyJhbGciOiJSUzI1NiJ9."
             "eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ."
@@ -15,22 +16,25 @@ def activate_bypass(mc_command: list):
                 mc_command[idx + 1] = "legacy"
             if arg == "--accessToken" and idx + 1 < len(mc_command):
                 mc_command[idx + 1] = dummy_jwt
-        
-        # 2. Định vị file Agent và thư viện Javassist phụ trợ
-        # Lúc này __file__ là core/patches/bypass.py => current_dir là core/patches/
-        current_dir = os.path.dirname(os.path.abspath(__file__))
-        
-        # THAY ĐỔI Ở ĐÂY: Vì file jar ở ngay cạnh file bypass.py nên bỏ chữ "patches" đi
-        agent_path = os.path.join(current_dir, "multiplayer_patch.jar")
-        lib_path = os.path.join(current_dir, "javassist.jar")
-        
-        # 3. Tiến hành tiêm nạp chuỗi kép vào JVM
+
+        # 2. Xử lý đường dẫn linh hoạt giữa môi trường .PY và .EXE
+        if getattr(sys, 'frozen', False):
+            # Khi chạy từ file .EXE (PyInstaller xả vào sys._MEIPASS)
+            bypass_dir = os.path.join(sys._MEIPASS, "core", "bypass")
+        else:
+            # Khi chạy file .PY thông thường (định vị ngay tại thư mục chứa activate.py)
+            bypass_dir = os.path.dirname(os.path.abspath(__file__))
+
+        agent_path = os.path.join(bypass_dir, "multiplayer_patch.jar")
+        lib_path = os.path.join(bypass_dir, "javassist.jar")
+
+        # 3. Tiến hành nạp chuỗi kép vào JVM
         if os.path.exists(agent_path) and os.path.exists(lib_path):
             mc_command.insert(1, f"-Xbootclasspath/a:{lib_path}")
             mc_command.insert(2, f"-javaagent:{agent_path}")
-            print(f"[Launcher Agent] Armed successfully with core libraries from patches folder!")
+            print(f"[Launcher Agent] Armed successfully! Path: {agent_path}")
         else:
-            print(f"[Launcher Agent] WARNING: Missing files inside core/patches/ folder! Path checked: {agent_path}")
+            print(f"[Launcher Agent] WARNING: Missing agent or javassist JAR files! Checked: {agent_path}")
                 
     except Exception as e:
         print(f"[Launcher Agent] Error injecting agent setup: {e}")

@@ -148,8 +148,8 @@
 
     <!-- ══════════════ GAME TAB ══════════════ -->
     <div class="tab-panel active" id="tab-game">
-        <div class="background-container">
-            <img src="kanako-launcher.png" class="logo" alt="Logo">
+        <div class="background-container" id="game-background">
+            <img src="kanako-launcher.png" class="logo" id="logo-img" alt="Logo">
 
             <div class="card-frame">
                 <h2>KANAKO LAUNCHER</h2>
@@ -228,6 +228,19 @@
                     <button class="btn-small btn-dark" onclick="browseGameDir()">Browse...</button>
                 </div>
 
+                <div class="form-section-title">🖼️ Profile Banner</div>
+                <p class="hint-text">Pick any image on your system. If it's later moved, renamed, or deleted, the launcher falls back to the default automatically.</p>
+                <div class="form-group banner-row">
+                    <img id="edit-banner-preview" class="banner-preview" src="banner.png" alt="Banner preview">
+                    <div class="banner-details">
+                        <div class="row-group">
+                            <input type="text" id="edit-banner-path" placeholder="Using default banner...">
+                            <button class="btn-small btn-dark" onclick="browseBannerImage()">Browse...</button>
+                        </div>
+                        <button class="btn-small btn-gray" onclick="resetBannerToDefault()">↩️ Reset to Default</button>
+                    </div>
+                </div>
+
                 <div class="form-section-title">☕ Java Runtime</div>
                 <p class="hint-text">By default, Java is selected automatically based on the Minecraft version.</p>
                 <div class="form-group checkbox-single">
@@ -290,7 +303,8 @@
 			<div class="mc-modal-body"></div>
 			
 			<!-- Thanh điều khiển phía dưới -->
-			<div class="mc-modal-footer">
+			<div class="mc-modal-footer mc-modal-footer-split">
+				<button class="mc-btn mc-btn-gray" id="btn-copy-mcbox" onclick="copyMCBoxLog()">📋 Copy Log</button>
 				<button class="mc-btn" onclick="closeMCBox()">Đóng</button>
 			</div>
 			

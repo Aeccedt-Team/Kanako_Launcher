@@ -252,6 +252,9 @@ function initializeLauncher() {
             if (btnVersion) btnVersion.innerText = "⏳ Fetching versions from Mojang...";
         }
 
+        // 4.6  Banner (game + console tab backgrounds)
+        applyBanner(data.profile_data.banner_data_uri);
+
     }).catch(err => {
         appendLog("[ERROR] Launcher init error: " + err, "error");
     });
@@ -276,6 +279,20 @@ function _initCheckboxFromStorage(elementId, storageKey, defaultValue) {
     const saved = localStorage.getItem(storageKey);
     chk.checked = saved !== null ? saved === "true" : defaultValue;
     chk.onchange = function() { localStorage.setItem(storageKey, this.checked); };
+}
+
+/**
+ * Apply a profile's banner (or revert to the bundled default) to both
+ * places that use it: the game tab background and the console tab
+ * background. Passing null/undefined clears the inline override, which
+ * falls back to the CSS default (url('banner.png')).
+ */
+function applyBanner(dataUri) {
+    const gameBg     = document.getElementById("game-background");
+    const consoleTab = document.getElementById("tab-console");
+    const cssValue   = dataUri ? `url("${dataUri}")` : "";
+    if (gameBg)     gameBg.style.backgroundImage     = cssValue;
+    if (consoleTab) consoleTab.style.backgroundImage = cssValue;
 }
 
 if (window.pywebview) {
@@ -386,6 +403,8 @@ function handleProfileChange() {
 
         if (data.versions_ready) renderVersions(data.versions, data.profile_data.version);
 
+        applyBanner(data.profile_data.banner_data_uri);
+
         window.updateStatus(`Switched to profile: ${selectedProfile}`, "#2ECC71");
         profileStatusTimeout = setTimeout(() => window.updateStatus("Ready.", "#94a3b8"), 2000);
     });
@@ -439,6 +458,11 @@ function editProfile() {
         document.getElementById("edit-allow-beta").checked     = prof.allow_beta     || false;
         document.getElementById("edit-allow-alpha").checked    = prof.allow_alpha    || false;
 
+        const bannerPreview = document.getElementById("edit-banner-preview");
+        const bannerPathBox = document.getElementById("edit-banner-path");
+        if (bannerPathBox) bannerPathBox.value = prof.banner_path || "";
+        if (bannerPreview) bannerPreview.src   = prof.banner_data_uri || "banner.png";
+
         toggleJavaInputVisibility();
         document.getElementById("edit-modal").classList.remove("hidden");
     }).catch(err => appendLog("[ERROR] editProfile: " + err, "error"));
@@ -464,18 +488,41 @@ function toggleJavaInputVisibility() {
 function browseGameDir() {
     window.pywebview.api.web_browse_directory().then(path => {
         if (path) document.getElementById("edit-game-dir").value = path;
-    });
+    }).catch(err => appendLog("[ERROR] browseGameDir: " + err, "error"));
 }
 
 function browseJavaPath() {
     window.pywebview.api.web_browse_file().then(path => {
         if (path) document.getElementById("edit-java-path").value = path;
-    });
+    }).catch(err => appendLog("[ERROR] browseJavaPath: " + err, "error"));
 }
 
 function openGameFolderNative() {
     const path = document.getElementById("edit-game-dir").value.trim();
     window.pywebview.api.web_open_folder(path);
+}
+
+// ==========================================
+// PROFILE BANNER
+// ==========================================
+
+function browseBannerImage() {
+    window.pywebview.api.web_choose_banner_image().then(result => {
+        if (!result) return; // dialog cancelled
+        const pathInput = document.getElementById("edit-banner-path");
+        const preview    = document.getElementById("edit-banner-preview");
+        if (pathInput) pathInput.value = result.path;
+        if (preview)   preview.src     = result.banner_data_uri || "banner.png";
+    });
+}
+
+function resetBannerToDefault() {
+    // Purely local — clearing the path field is enough; it's committed
+    // (or discarded) along with everything else when Save is clicked.
+    const pathInput = document.getElementById("edit-banner-path");
+    const preview    = document.getElementById("edit-banner-preview");
+    if (pathInput) pathInput.value = "";
+    if (preview)   preview.src     = "banner.png";
 }
 
 async function saveProfileSettings() {
@@ -484,6 +531,7 @@ async function saveProfileSettings() {
     const jvmArgs       = document.getElementById("edit-jvm-args").value.trim();
     const javaManual    = document.getElementById("edit-java-manual").checked;
     const javaPath      = document.getElementById("edit-java-path").value.trim();
+    const bannerPath    = document.getElementById("edit-banner-path").value.trim();
     const allowSnapshot = document.getElementById("edit-allow-snapshot").checked;
     const allowBeta     = document.getElementById("edit-allow-beta").checked;
     const allowAlpha    = document.getElementById("edit-allow-alpha").checked;
@@ -496,7 +544,7 @@ async function saveProfileSettings() {
     try {
         await window.pywebview.api.web_save_profile(
             currentEditingOldId, newName, gameDir, jvmArgs,
-            javaManual, javaPath, allowSnapshot, allowBeta, allowAlpha
+            javaManual, javaPath, bannerPath, allowSnapshot, allowBeta, allowAlpha
         );
 
         // FIX 1: Update currentEditingOldId to the new name immediately so
@@ -520,6 +568,7 @@ async function saveProfileSettings() {
             if (txtUsername) txtUsername.value   = data.profile_data.username || "";
             if (chkRemember) chkRemember.checked = data.profile_data.remember || false;
             if (data.versions_ready) renderVersions(data.versions, data.profile_data.version);
+            applyBanner(data.profile_data.banner_data_uri);
         }
 
         window.updateStatus("Profile saved successfully!", "#2ECC71");
@@ -844,6 +893,41 @@ function escapeHtml(str) {
 // Hàm đóng hộp thoại
 function closeMCBox() {
     document.getElementById("mcMessageBox").classList.remove("active");
+}
+
+// Copies whatever's currently shown in the box's body (the crash log or
+// the missing-mods list) as plain text -- innerText strips the HTML tags
+// for us, so this works for either content type without extra bookkeeping.
+function copyMCBoxLog() {
+    const bodyEl = document.querySelector("#mcMessageBox .mc-modal-body");
+    if (!bodyEl) return;
+    const text = bodyEl.innerText;
+
+    function flashCopied() {
+        const btn = document.getElementById("btn-copy-mcbox");
+        if (!btn) return;
+        const original = btn.textContent;
+        btn.textContent = "✔ Copied!";
+        setTimeout(() => { btn.textContent = original; }, 1200);
+    }
+
+    function fallbackCopy() {
+        const ta = document.createElement("textarea");
+        ta.value = text;
+        ta.style.position = "fixed";
+        ta.style.left = "-9999px";
+        document.body.appendChild(ta);
+        ta.focus();
+        ta.select();
+        try { document.execCommand("copy"); flashCopied(); } catch (e) { /* clipboard unavailable */ }
+        document.body.removeChild(ta);
+    }
+
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(flashCopied).catch(fallbackCopy);
+    } else {
+        fallbackCopy();
+    }
 }
 
 // ==========================================
