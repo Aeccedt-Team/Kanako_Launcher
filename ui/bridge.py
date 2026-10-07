@@ -7,6 +7,8 @@ import json
 import webview
 import subprocess
 import platform
+import base64
+import mimetypes
 
 from core.config_manager import ConfigManager
 from core.game_runner import run_launch_process
@@ -25,6 +27,32 @@ class LauncherBridgeAPI:
     # ------------------------------------------------------------------
     # Internal helper
     # ------------------------------------------------------------------
+
+    @staticmethod
+    def _banner_data_uri(path):
+        """Read an image file and return it as a data: URI the WebView can
+        use directly in CSS/<img>. Returns None if there's no usable file
+        (so the UI falls back to the bundled banner.png)."""
+        if not path or not os.path.isfile(path):
+            return None
+        try:
+            mime = mimetypes.guess_type(path)[0] or "image/png"
+            with open(path, "rb") as f:
+                b64 = base64.b64encode(f.read()).decode("ascii")
+            return f"data:{mime};base64,{b64}"
+        except OSError as e:
+            print(f"[Bridge Error] Could not read banner image '{path}': {e}")
+            return None
+
+    def _with_banner(self, prof):
+        """Return a COPY of a profile dict plus a transient 'banner_data_uri'.
+        Deliberately a copy: the stored profile is what gets written to the
+        JSON config, and we must never persist megabytes of base64 there."""
+        if prof is None:
+            return None
+        out = dict(prof)
+        out["banner_data_uri"] = self._banner_data_uri(prof.get("banner_path", ""))
+        return out
 
     def _get_local_version_ids(self, minecraft_dir: str) -> list[str]:
         """
@@ -91,7 +119,7 @@ class LauncherBridgeAPI:
         return {
             "current_profile": current_prof,
             "profiles_list":   profiles_list,
-            "profile_data":    profile_data,
+            "profile_data":    self._with_banner(profile_data),
             "versions_ready":  versions_ready,
             "versions":        version_list,
         }
@@ -109,7 +137,7 @@ class LauncherBridgeAPI:
             ) if self._version_manager else []
 
             return {
-                "profile_data":   profile_data,
+                "profile_data":   self._with_banner(profile_data),
                 "versions_ready": self._version_manager is not None,
                 "versions":       version_list,
             }
@@ -249,8 +277,34 @@ class LauncherBridgeAPI:
         except Exception as e:
             print(f"[Bridge Error] Failed to start launch thread: {e}")
 
+    def refresh_versions(self):
+        """Called by the Refresh button: re-fetch the version list from
+        Mojang in the background and push it to the UI when ready
+        (_async_load_versions ends by calling onVersionsLoaded)."""
+        threading.Thread(target=self._async_load_versions, daemon=True).start()
+
     def get_profile_details(self, profile_name):
-        return self._config_manager.get_profile(profile_name)
+        return self._with_banner(self._config_manager.get_profile(profile_name))
+
+    def web_choose_banner_image(self):
+        """Open an image picker. Returns {path, banner_data_uri}, or None if
+        the dialog was cancelled / the file couldn't be read."""
+        try:
+            result = self._window.create_file_dialog(
+                webview.OPEN_DIALOG,
+                file_types=("Image files (*.png;*.jpg;*.jpeg;*.webp;*.bmp;*.gif)",
+                            "All files (*.*)"),
+            )
+            if not result:
+                return None
+            path = os.path.normpath(result[0])
+            uri = self._banner_data_uri(path)
+            if uri is None:
+                return None
+            return {"path": path, "banner_data_uri": uri}
+        except Exception as e:
+            print(f"[Bridge Error] web_choose_banner_image failed: {e}")
+            return None
 
     def web_browse_directory(self):
         try:
@@ -287,7 +341,7 @@ class LauncherBridgeAPI:
             subprocess.Popen(["xdg-open", path])
 
     def web_save_profile(self, old_id, new_name, game_dir, jvm_args,
-                         java_manual, java_path,
+                         java_manual, java_path, banner_path,
                          allow_snapshots, allow_beta, allow_alpha):
         try:
             if not new_name:
@@ -298,6 +352,7 @@ class LauncherBridgeAPI:
             prof["jvm_args"]        = jvm_args
             prof["java_manual"]     = java_manual
             prof["java_path"]       = java_path if java_manual else ""
+            prof["banner_path"]     = banner_path or ""
             prof["allow_snapshots"] = allow_snapshots
             prof["allow_beta"]      = allow_beta
             prof["allow_alpha"]     = allow_alpha

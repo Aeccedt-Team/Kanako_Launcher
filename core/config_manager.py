@@ -42,6 +42,10 @@ class ConfigManager:
             "jvm_args":        DEFAULT_JVM_ARGS,
             "java_path":       "",
             "java_manual":     False,
+            # Absolute path to a custom background image for this profile
+            # ("" = use the bundled banner.png). Only the PATH is stored here;
+            # the image itself is read and sent to the UI on demand.
+            "banner_path":     "",
             "allow_snapshots": False,
             "allow_beta":      False,
             "allow_alpha":     False,
