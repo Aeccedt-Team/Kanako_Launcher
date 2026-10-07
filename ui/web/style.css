@@ -443,6 +443,7 @@ input[type="text"] {
     gap: 8px;
     flex: 1;
 }
+.banner-details .form-group { margin-bottom: 0; }
 
 .modal-footer { display: flex; justify-content: space-between; margin-top: 20px; border-top: 1px solid #2c2c35; padding-top: 15px; }
 .right-buttons { display: flex; gap: 8px; }
